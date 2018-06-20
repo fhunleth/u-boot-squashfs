@@ -58,9 +58,14 @@
 
 #define BOOTENV_DEV_LEGACY_MMC(devtypeu, devtypel, instance) \
 	"bootcmd_" #devtypel #instance "=" \
+	"gpio clear 56; " \
+	"gpio clear 55; " \
+	"gpio clear 54; " \
+	"gpio set 53; " \
+	"setenv devtype mmc; " \
 	"setenv mmcdev " #instance"; "\
-	"setenv bootpart " #instance":2 ; "\
-	"run mmcboot\0"
+	"setenv bootpart " #instance":1 ; "\
+	"run boot\0"
 
 #define BOOTENV_DEV_NAME_LEGACY_MMC(devtypeu, devtypel, instance) \
 	#devtypel #instance " "
@@ -89,7 +94,6 @@
 	func(LEGACY_MMC, legacy_mmc, 0) \
 	func(MMC, mmc, 1) \
 	func(LEGACY_MMC, legacy_mmc, 1) \
-	func(NAND, nand, 0) \
 	BOOT_TARGET_PXE(func) \
 	BOOT_TARGET_DHCP(func)
 
@@ -106,6 +110,7 @@
 	"bootpart=0:2\0" \
 	"bootdir=/boot\0" \
 	"bootfile=zImage\0" \
+	"board_eeprom_header=undefined\0" \
 	"fdtfile=undefined\0" \
 	"console=ttyO0,115200n8\0" \
 	"partitions=" \
@@ -135,14 +140,67 @@
 		"sf probe ${spibusno}:0; " \
 		"sf read ${loadaddr} ${spisrcaddr} ${spiimgsize}; " \
 		"bootz ${loadaddr}\0" \
+	"pb_eeprom_hdr=" \
+		"mw 82001000 ee3355aa; " \
+		"mw 82001004 35333341; " \
+		"mw 82001008 4c474250\0" \
+	"serverip=192.168.1.1\0" \
+	"ipaddr=192.168.1.2\0" \
+	"if_netconsole=ping $serverip\0" \
+	"start_netconsole=" \
+		"setenv ncip $serverip; " \
+		"setenv bootdelay 10; " \
+		"setenv stdin serial,nc; " \
+		"setenv stdout serial,nc; " \
+		"setenv stderr serial,nc; " \
+		"version\0" \
+	"preboot=run if_netconsole start_netconsole\0"\
+	"eeprom_program="\
+		"if test $board_eeprom_header = bbb_blank; then " \
+			"run eeprom_dump; run eeprom_blank; run eeprom_bbb_header; run eeprom_dump; reset; fi; " \
+		"if test $board_eeprom_header = bbbl_blank; then " \
+			"run eeprom_dump; run eeprom_blank; run eeprom_bbb_header; run eeprom_bbbl_footer; run eeprom_dump; reset; fi; " \
+		"if test $board_eeprom_header = bbbw_blank; then " \
+			"run eeprom_dump; run eeprom_blank; run eeprom_bbb_header; run eeprom_bbbw_footer; run eeprom_dump; reset; fi; " \
+		"if test $board_eeprom_header = os00_blank; then " \
+			"run eeprom_dump; run eeprom_blank; run eeprom_bbb_header; run eeprom_os00_footer; run eeprom_dump; reset; fi; " \
+		"if test $board_eeprom_header = beaglelogic_blank; then " \
+			"run eeprom_dump; run eeprom_blank; run eeprom_beaglelogic; run eeprom_dump; reset; fi;  \0" \
 	"ramboot=echo Booting from ramdisk ...; " \
 		"run ramargs; " \
 		"bootz ${loadaddr} ${rdaddr} ${fdtaddr}\0" \
 	"findfdt="\
+		"echo board_name=[$board_name] ...; " \
+		"if test $board_name = A335BLGC; then " \
+			"setenv fdtfile am335x-beaglelogic.dtb; fi; " \
 		"if test $board_name = A335BONE; then " \
 			"setenv fdtfile am335x-bone.dtb; fi; " \
 		"if test $board_name = A335BNLT; then " \
-			"setenv fdtfile am335x-boneblack.dtb; fi; " \
+			"echo board_rev=[$board_rev] ...; " \
+			"if test $board_rev = GH01; then " \
+				"setenv fdtfile am335x-boneblack.dtb; " \
+			"elif test $board_rev = BBG1; then " \
+				"setenv fdtfile am335x-bonegreen.dtb; " \
+			"elif test $board_rev = BP00; then " \
+				"setenv fdtfile am335x-pocketbone.dtb; " \
+			"elif test $board_rev = GW1A; then " \
+				"setenv fdtfile am335x-bonegreen-wireless.dtb; " \
+			"elif test $board_rev = AIA0; then " \
+				"setenv fdtfile am335x-abbbi.dtb; " \
+			"elif test $board_rev = EIA0; then " \
+				"setenv fdtfile am335x-boneblack.dtb; " \
+			"elif test $board_rev = SE0A; then " \
+				"setenv fdtfile am335x-sancloud-bbe.dtb; " \
+			"elif test $board_rev = ME06; then " \
+				"setenv fdtfile am335x-bonegreen.dtb; " \
+			"elif test $board_rev = M10A; then " \
+				"setenv fdtfile am335x-vsc8531bbb.dtb; " \
+			"elif test $board_rev = OS00; then " \
+				"setenv fdtfile am335x-osd3358-sm-red.dtb; " \
+			"else " \
+				"setenv fdtfile am335x-boneblack.dtb; " \
+			"fi; " \
+		"fi; " \
 		"if test $board_name = A335PBGL; then " \
 			"setenv fdtfile am335x-pocketbeagle.dtb; fi; " \
 		"if test $board_name = BBBW; then " \
@@ -153,6 +211,10 @@
 			"setenv fdtfile am335x-bonegreen-wireless.dtb; fi; " \
 		"if test $board_name = BBBL; then " \
 			"setenv fdtfile am335x-boneblue.dtb; fi; " \
+		"if test $board_name = SBBE; then " \
+			"setenv fdtfile am335x-sancloud-bbe.dtb; fi; " \
+		"if test $board_name = OS00; then " \
+			"setenv fdtfile am335x-osd3358-sm-red.dtb; fi; " \
 		"if test $board_name = A33515BB; then " \
 			"setenv fdtfile am335x-evm.dtb; fi; " \
 		"if test $board_name = A335X_SK; then " \
@@ -160,13 +222,22 @@
 		"if test $board_name = A335_ICE; then " \
 			"setenv fdtfile am335x-icev2.dtb; fi; " \
 		"if test $fdtfile = undefined; then " \
-			"echo WARNING: Could not determine device tree to use; fi; \0" \
+			"setenv board_name A335BNLT; " \
+			"setenv board_rev EMMC; " \
+			"setenv fdtfile am335x-boneblack-emmc-overlay.dtb; " \
+		"fi; \0" \
 	"init_console=" \
 		"if test $board_name = A335_ICE; then "\
 			"setenv console ttyO3,115200n8;" \
+		"elif test $board_name = A335BLGC; then " \
+			"setenv console ttyO4,115200n8;" \
 		"else " \
 			"setenv console ttyO0,115200n8;" \
 		"fi;\0" \
+	EEWIKI_NFS \
+	EEWIKI_BOOT \
+	EEWIKI_UNAME_BOOT \
+	EEPROM_PROGRAMMING \
 	NANDARGS \
 	NETARGS \
 	DFUARGS \
@@ -240,9 +311,14 @@
  */
 #define CONFIG_USB_MUSB_DISABLE_BULK_COMBINE_SPLIT
 #define CONFIG_AM335X_USB0
-#define CONFIG_AM335X_USB0_MODE	MUSB_PERIPHERAL
 #define CONFIG_AM335X_USB1
+#ifdef CONFIG_AM335X_USB_SWAP
+#define CONFIG_AM335X_USB0_MODE MUSB_HOST
+#define CONFIG_AM335X_USB1_MODE	MUSB_PERIPHERAL
+#else
+#define CONFIG_AM335X_USB0_MODE	MUSB_PERIPHERAL
 #define CONFIG_AM335X_USB1_MODE MUSB_HOST
+#endif
 
 /*
  * Disable MMC DM for SPL build and can be re-enabled after adding
@@ -294,6 +370,17 @@
 #define CONFIG_ENV_OFFSET_REDUND	(CONFIG_ENV_OFFSET + CONFIG_ENV_SIZE)
 #define CONFIG_SYS_REDUNDAND_ENVIRONMENT
 #define CONFIG_SYS_MMC_MAX_DEVICE	2
+#elif defined(CONFIG_SD_BOOT)
+#define CONFIG_ENV_IS_IN_FAT
+#define FAT_ENV_INTERFACE		"mmc"
+#define FAT_ENV_DEVICE_AND_PART		"0:1"
+#define FAT_ENV_FILE			"uboot.env"
+#ifndef CONFIG_FAT_WRITE
+#define CONFIG_FAT_WRITE
+#endif
+#define FAT_ENV_DEVICE 0
+#define FAT_ENV_PART 1
+#define CONFIG_BOOT_PARTITION_ACCESS
 #elif defined(CONFIG_NOR_BOOT)
 #define CONFIG_ENV_SECT_SIZE		(128 << 10)	/* 128 KiB */
 #define CONFIG_ENV_OFFSET		(512 << 10)	/* 512 KiB */

@@ -90,21 +90,21 @@ int squashfs_read_data(struct super_block *sb, u64 index, int length,
 		u64 *next_index, struct squashfs_page_actor *output)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
-	char **buf;
+	char **blocks;
+	char *buf = NULL, *blk_len_buf = NULL;
 	int offset = index & ((1 << msblk->devblksize_log2) - 1);
 	u64 cur_index = index >> msblk->devblksize_log2;
 	int bytes, compressed, b = 0, k = 0, avail;
 
-	buf = calloc(((output->length + msblk->devblksize - 1)
-		>> msblk->devblksize_log2) + 1, sizeof(*buf));
-	if (buf == NULL)
+	blocks = calloc(((output->length + msblk->devblksize - 1)
+		>> msblk->devblksize_log2) + 1, sizeof(*blocks));
+	if (blocks == NULL)
 		return -ENOMEM;
 
 	if (length) {
 		/*
 		 * Datablock.
 		 */
-		bytes = -offset;
 		compressed = SQUASHFS_COMPRESSED_BLOCK(length);
 		length = SQUASHFS_COMPRESSED_SIZE_BLOCK(length);
 		if (next_index)
@@ -117,16 +117,14 @@ int squashfs_read_data(struct super_block *sb, u64 index, int length,
 				(index + length) > msblk->bytes_used)
 			goto read_failure;
 
-		for (b = 0; bytes < length; b++, cur_index++) {
-			buf[b] = squashfs_devread(msblk,
-					 cur_index * msblk->devblksize,
-					 msblk->devblksize);
-			if (buf[b] == NULL)
-				goto block_release;
+		int readlen = ALIGN(length + offset, msblk->devblksize);
 
-			bytes += msblk->devblksize;
-		}
+		buf = squashfs_devread(msblk, cur_index * msblk->devblksize, readlen);
+		if (buf == NULL)
+			goto read_failure;
 
+		for (bytes = 0; bytes < readlen; bytes += msblk->devblksize, b++)
+			blocks[b] = buf + (b * msblk->devblksize);
 	} else {
 		/*
 		 * Metadata block.
@@ -134,12 +132,12 @@ int squashfs_read_data(struct super_block *sb, u64 index, int length,
 		if ((index + 2) > msblk->bytes_used)
 			goto read_failure;
 
-		buf[0] = get_block_length(sb, &cur_index, &offset, &length);
-		if (buf[0] == NULL)
+		blk_len_buf = get_block_length(sb, &cur_index, &offset, &length);
+		if (blk_len_buf == NULL)
 			goto read_failure;
+		blocks[0] = blk_len_buf;
 		b = 1;
 
-		bytes = msblk->devblksize - offset;
 		compressed = SQUASHFS_COMPRESSED(length);
 		length = SQUASHFS_COMPRESSED_SIZE(length);
 		if (next_index)
@@ -150,20 +148,20 @@ int squashfs_read_data(struct super_block *sb, u64 index, int length,
 
 		if (length < 0 || length > output->length ||
 					(index + length) > msblk->bytes_used)
-			goto block_release;
+			goto read_failure;
 
-		for (; bytes < length; b++) {
-			buf[b] = squashfs_devread(msblk,
-					 ++cur_index * msblk->devblksize,
-					 msblk->devblksize);
-			if (buf[b] == NULL)
-				goto block_release;
-			bytes += msblk->devblksize;
-		}
+		int readlen = ALIGN((length + offset) - msblk->devblksize, msblk->devblksize);
+
+		buf = squashfs_devread(msblk, ++cur_index * msblk->devblksize, readlen);
+		if (buf == NULL)
+			goto read_failure;
+
+		for (bytes = 0; bytes < readlen; bytes += msblk->devblksize, b++)
+			blocks[b] = buf + ((b-1) * msblk->devblksize);
 	}
 
 	if (compressed) {
-		length = squashfs_decompress(msblk, buf, b, offset, length,
+		length = squashfs_decompress(msblk, blocks, b, offset, length,
 			output);
 		if (length < 0)
 			goto read_failure;
@@ -184,28 +182,30 @@ int squashfs_read_data(struct super_block *sb, u64 index, int length,
 				}
 				avail = min_t(int, in, PAGE_SIZE -
 						pg_offset);
-				memcpy(data + pg_offset, buf[k] + offset,
+				memcpy(data + pg_offset, blocks[k] + offset,
 						avail);
 				in -= avail;
 				pg_offset += avail;
 				offset += avail;
 			}
 			offset = 0;
-			kfree(buf[k]);
 		}
 		squashfs_finish_page(output);
 	}
 
 	kfree(buf);
-	return length;
+	kfree(blocks);
+	kfree(blk_len_buf);
 
-block_release:
-	for (; k < b; k++)
-		kfree(buf[k]);
+	return length;
 
 read_failure:
 	ERROR("squashfs_read_data failed to read block 0x%llx\n",
 					(unsigned long long) index);
+
 	kfree(buf);
+	kfree(blocks);
+	kfree(blk_len_buf);
+
 	return -EIO;
 }

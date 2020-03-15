@@ -88,7 +88,6 @@ static int lzo_uncompress(struct squashfs_sb_info *msblk, void *strm,
 		buff += avail;
 		bytes -= avail;
 		offset = 0;
-		kfree(bh[i]);
 	}
 
 	res = lzo1x_decompress_safe(stream->input, (size_t)length,

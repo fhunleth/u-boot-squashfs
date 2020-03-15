@@ -93,7 +93,7 @@ static int zlib_uncompress(struct squashfs_sb_info *msblk, void *strm,
 		zlib_err = inflate(stream, Z_SYNC_FLUSH);
 
 		if (stream->avail_in == 0 && k < b)
-			kfree(bh[k++]);
+			k++;
 	} while (zlib_err == Z_OK);
 
 	squashfs_finish_page(output);
@@ -111,9 +111,6 @@ static int zlib_uncompress(struct squashfs_sb_info *msblk, void *strm,
 	return stream->total_out;
 
 out:
-    for (; k < b; k++)
-		kfree(bh[k]);
-
 	return -EIO;
 }
 
